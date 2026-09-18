@@ -74,7 +74,7 @@
   function loadModels() {
     setEnabled(false);
     Archway.clear(el.errors);
-    setModelHint("Loading the catalogue…", true);
+    setModelHint("Loading the catalogue\u2026", true);
 
     Archway.listModels().then(function (models) {
       var list = models || [];
@@ -146,7 +146,7 @@
       el.maxTokens.removeAttribute("max");
     }
     if (m.deprecated) bits.push("deprecated");
-    setModelHint(bits.join(" · "), false);
+    setModelHint(bits.join(" \u00b7 "), false);
   }
 
   function modelLabel(id) {
@@ -160,7 +160,7 @@
   function addMessage(role, text, byline) {
     var wrap = Archway.el("div", role === "user" ? "msg msg--user" : "msg");
     var who = role === "user" ? "You" : "Assistant";
-    if (byline) who += " · " + byline;
+    if (byline) who += " \u00b7 " + byline;
     wrap.appendChild(Archway.el("div", "msg__role", who));
     var body = Archway.el("div", "msg__body", text || "");
     wrap.appendChild(body);
@@ -189,8 +189,8 @@
      actually next: connect a key, or ask something. */
   function paintStarter() {
     el.starterText.textContent = state.ready
-      ? "Ask anything — the reply streams back token by token. Or start with one of these."
-      : "Connect your Archway key above, then ask anything — the reply streams back token by token.";
+      ? "Ask anything \u2014 the reply streams back token by token. Or start with one of these."
+      : "Connect your Archway key above, then ask anything \u2014 the reply streams back token by token.";
     chips.forEach(function (chip) {
       chip.disabled = !state.ready || state.busy;
     });
