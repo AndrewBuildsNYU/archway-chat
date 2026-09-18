@@ -1,0 +1,187 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archway Chat Â· NYU Archway</title>
+<meta name="description" content="A streaming multi-turn chatbot built on the NYU Archway gateway â€” the smallest complete example of calling it from a browser.">
+<link rel="stylesheet" href="assets/archway.css">
+<script>
+  // Pre-paint theme stamp: avoids a light flash for dark-mode users. Inline on
+  // purpose and safe here â€” GitHub Pages sets no CSP. (The Archway's own pages
+  // cannot do this; script-src 'self' blocks it.)
+  try {
+    var t = localStorage.getItem("nyu-archway:theme");
+    if (t) document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+</script>
+<style>
+  /* Layout rules this app needs on top of the design system. */
+  .chat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+    gap: var(--sp-4);
+    align-items: start;
+  }
+
+  .controls .field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  #system-panel .field {
+    margin-top: var(--sp-4);
+  }
+
+  .transcript {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    /* Bounded so the composer stays reachable without scrolling the page. */
+    max-height: min(60vh, 34rem);
+    /* Not scroll-behavior: smooth â€” the animation's own scroll events would be
+       mistaken for the reader scrolling away mid-stream. */
+    overflow-y: auto;
+  }
+
+  .composer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+    margin-top: var(--sp-4);
+  }
+
+  .composer textarea {
+    resize: vertical;
+    min-height: 4.5rem;
+    max-height: 14rem;
+  }
+
+  .composer__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+
+  #readout:not(:empty),
+  #errors:not(:empty) {
+    margin-top: var(--sp-4);
+  }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--accent);
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <span class="topbar__mark">NYU</span>
+    <span class="topbar__title">
+      <strong>Archway Chat</strong>
+      <span>NYU Archway example</span>
+    </span>
+    <button type="button" class="btn btn--sm btn--ghost" id="theme-toggle">Dark mode</button>
+    <a class="btn btn--sm" href="https://github.com/AndrewBuildsNYU/archway-chat">Source</a>
+  </header>
+
+  <p class="lede">
+    A streaming, multi-turn chatbot in one page of JavaScript. It shows the shape of every
+    Archway call: pick a model from the catalogue your key can reach, stream the tokens back,
+    and read the gateway's accounting headers afterwards.
+  </p>
+
+  <div id="key-mount"></div>
+
+  <main id="app" class="stack">
+    <section class="card" aria-labelledby="settings-title">
+      <div class="card__head chat-head">
+        <strong id="settings-title">Settings</strong>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn--sm btn--ghost" id="system-toggle"
+                aria-expanded="false" aria-controls="system-panel" disabled>System prompt</button>
+      </div>
+
+      <div class="controls">
+        <div class="field">
+          <label for="model">Model</label>
+          <select id="model" disabled>
+            <option value="">Connect a key to load models</option>
+          </select>
+          <p class="field__hint" id="model-hint">The catalogue is filtered to what your key may call.</p>
+        </div>
+
+        <div class="field">
+          <label for="max-tokens">Max output tokens</label>
+          <input type="number" id="max-tokens" min="1" max="8192" step="1" value="800" disabled>
+          <p class="field__hint">Reserved up front, reconciled against the vendor's real count.</p>
+        </div>
+
+        <div class="field">
+          <label for="temperature">Temperature <span class="mono" id="temp-value">0.70</span></label>
+          <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.7" disabled>
+          <p class="field__hint">0 is near-deterministic, 1 is loose.</p>
+        </div>
+      </div>
+
+      <div id="system-panel" class="hidden">
+        <div class="field">
+          <label for="system">System prompt</label>
+          <textarea id="system" rows="3" disabled
+                    placeholder="Optional. For example: You are a concise teaching assistant for NYU students."></textarea>
+          <p class="field__hint">Sent as a <span class="mono">role: "system"</span> message on every turn. Empty means none.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="conversation-title">
+      <div class="card__head chat-head">
+        <strong id="conversation-title">Conversation</strong>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn--sm btn--ghost" id="new-chat" disabled>New chat</button>
+      </div>
+
+      <div id="transcript" class="transcript" role="log" aria-live="polite"
+           aria-relevant="additions text" aria-label="Conversation transcript" tabindex="-1">
+        <div class="empty" id="empty-state">
+          Nothing yet. Ask something below â€” the reply streams in token by token.
+        </div>
+      </div>
+
+      <div id="readout" class="readout hidden"></div>
+      <div id="errors" role="alert" aria-live="assertive"></div>
+
+      <form class="composer" id="composer">
+        <div class="field">
+          <label for="prompt">Message</label>
+          <textarea id="prompt" rows="3" disabled
+                    placeholder="Enter to send, Shift+Enter for a new line"></textarea>
+        </div>
+        <div class="composer__actions">
+          <button type="submit" class="btn btn--primary" id="send" disabled>Send</button>
+          <button type="button" class="btn btn--danger" id="stop" disabled>Stop</button>
+          <span class="spacer"></span>
+          <span class="xs muted" id="turns">No turns yet</span>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>Runs entirely in your browser. Your key is sent only to the Archway you point it at.</span>
+    <span>Ask whoever issued your key for the gateway address and its documentation.</span>
+    <a href="https://github.com/AndrewBuildsNYU?tab=repositories&amp;q=archway-">More examples</a>
+  </footer>
+</div>
+<script src="assets/archway.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
