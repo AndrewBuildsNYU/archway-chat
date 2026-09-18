@@ -1,14 +1,15 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Archway Chat Â· NYU Archway</title>
-<meta name="description" content="A streaming multi-turn chatbot built on the NYU Archway gateway â€” the smallest complete example of calling it from a browser.">
+<title>Archway Chat &middot; NYU Archway</title>
+<meta name="description" content="A streaming multi-turn chatbot built on the NYU Archway gateway &mdash; the smallest complete example of calling it from a browser.">
+<meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="assets/archway.css">
 <script>
   // Pre-paint theme stamp: avoids a light flash for dark-mode users. Inline on
-  // purpose and safe here â€” GitHub Pages sets no CSP. (The Archway's own pages
+  // purpose and safe here — GitHub Pages sets no CSP. (The Archway's own pages
   // cannot do this; script-src 'self' blocks it.)
   try {
     var t = localStorage.getItem("nyu-archway:theme");
@@ -16,68 +17,343 @@
   } catch (e) {}
 </script>
 <style>
-  /* Layout rules this app needs on top of the design system. */
-  .chat-head {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-3);
-    flex-wrap: wrap;
-  }
+  /* ==================================================================
+     Archway Chat - page rules only.
 
-  .controls {
+     Tokens, cards, buttons, fields, badges, messages, alerts, meters and
+     the spinner all come from assets/archway.css. Nothing below restates
+     them; it only does the two things a shared sheet cannot know about:
+     this page's layout, and the shape of a chat composer.
+     ================================================================== */
+
+  /* ------------------------------------------------ 1. Page layout */
+
+  /* One column, splitting into a settings rail plus the conversation as
+     soon as there is room for a 20rem rail without squeezing the
+     transcript below a readable measure. */
+  .workspace {
+    --rail: 20rem;
+    --bar-h: 3.75rem; /* the sticky topbar, so the rail can clear it */
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-    gap: var(--sp-4);
+    gap: var(--sp-5);
     align-items: start;
   }
 
-  .controls .field:first-child {
+  @media (min-width: 64rem) {
+    .workspace {
+      grid-template-columns: minmax(0, var(--rail)) minmax(0, 1fr);
+    }
+
+    /* The transcript is far taller than the rail; the rail follows. */
+    .settings {
+      position: sticky;
+      top: calc(var(--bar-h) + var(--sp-4));
+    }
+  }
+
+  .intro {
+    margin-bottom: var(--sp-6);
+  }
+
+  .intro h1 {
+    font-size: var(--fs-xl);
+    max-width: 20ch;
+    margin-bottom: var(--sp-3);
+    text-wrap: balance;
+  }
+
+  @media (min-width: 48rem) {
+    .intro h1 {
+      font-size: var(--fs-hero);
+    }
+  }
+
+  .intro .lede {
+    margin-bottom: 0;
+  }
+
+  /* ---------------------------------------------- 2. Settings rail */
+
+  /* Auto-fit, so the same markup is a single column inside the rail and a
+     three-up row when the page is still stacked on a tablet. */
+  .controls {
+    display: grid;
+    gap: var(--sp-4);
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    align-items: start;
+  }
+
+  .controls .field--wide {
     grid-column: 1 / -1;
   }
 
-  #system-panel .field {
-    margin-top: var(--sp-4);
+  /* The catalogue load is the one place a hint doubles as a status line. */
+  .field__hint.is-busy {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
   }
 
+  .range-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--sp-2);
+  }
+
+  .range-label .mono {
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+
+  #system-panel {
+    margin-top: var(--sp-4);
+    padding-top: var(--sp-4);
+    border-top: 1px solid var(--border);
+  }
+
+  #system-toggle svg {
+    transition: transform 0.18s var(--ease);
+  }
+
+  #system-toggle[aria-expanded="true"] svg {
+    transform: rotate(180deg);
+  }
+
+  /* ----------------------------------------------- 3. Conversation */
+
+  .conversation {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    /* The shared sheet's small-screen rule re-pads every .card, which would
+       undo .card--flush below 40rem. */
+    padding: 0;
+  }
+
+  .conversation > .card__head {
+    margin: 0;
+    padding: var(--sp-4) var(--sp-5);
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* A recessed canvas, so a message reads as an object sitting on a
+     surface rather than a box drawn onto the card. */
   .transcript {
     display: flex;
     flex-direction: column;
-    gap: var(--sp-3);
-    /* Bounded so the composer stays reachable without scrolling the page. */
-    max-height: min(60vh, 34rem);
-    /* Not scroll-behavior: smooth â€” the animation's own scroll events would be
-       mistaken for the reader scrolling away mid-stream. */
+    gap: var(--sp-4);
+    padding: var(--sp-5);
+    /* A stated height, not a max: the canvas should not resize under the
+       reader as answers arrive, and the composer should never move. */
+    flex: none;
+    height: clamp(18rem, 54vh, 36rem);
     overflow-y: auto;
+    overscroll-behavior: contain;
+    background: var(--plane-2);
+    /* Explicitly not smooth: the page-level smooth scroll would animate every
+       streamed fragment, and its own scroll events read as the reader
+       scrolling away mid-answer. */
+    scroll-behavior: auto;
   }
 
-  .composer {
+  /* A fixed-height flex column shrinks its children by default, which
+     squashes a long answer instead of scrolling it. */
+  .transcript > * {
+    flex: 0 0 auto;
+  }
+
+  .transcript > .msg {
+    max-width: min(68ch, 100%);
+    box-shadow: var(--shadow-1);
+  }
+
+  .transcript > .msg:not(.msg--user) {
+    align-self: flex-start;
+    border-bottom-left-radius: var(--r-xs);
+  }
+
+  .transcript > .msg--user {
+    align-self: flex-end;
+    max-width: min(54ch, 92%);
+    border-bottom-right-radius: var(--r-xs);
+  }
+
+  /* ---------------------------------------------- 4. Empty state */
+
+  .starter {
+    /* auto margins centre the invitation in the empty canvas */
+    margin: auto;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: var(--sp-3);
-    margin-top: var(--sp-4);
+    padding: var(--sp-5) var(--sp-2);
+    max-width: 32rem;
   }
 
-  .composer textarea {
-    resize: vertical;
-    min-height: 4.5rem;
-    max-height: 14rem;
+  .starter__mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--r-full);
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
+    color: var(--accent);
   }
 
-  .composer__actions {
+  .starter__title {
+    margin: 0;
+    font-size: var(--fs-md);
+    font-weight: 640;
+    letter-spacing: -0.014em;
+    color: var(--ink-1);
+  }
+
+  .starter__text {
+    margin: 0;
+    max-width: 44ch;
+    color: var(--ink-3);
+    font-size: var(--fs-sm);
+  }
+
+  .starter__chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-1);
+  }
+
+  /* ------------------------------------------- 5. Readout & errors */
+
+  /* Only take vertical space once there is something in them. */
+  #readout:not(:empty),
+  #errors:not(:empty) {
+    margin: var(--sp-4) var(--sp-5);
+  }
+
+  /* --------------------------------------------------- 6. Composer */
+
+  /* .card__foot supplies the rule above; this supplies the tray. */
+  .composer {
+    margin-top: 0;
+    padding: var(--sp-4) var(--sp-5);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-3);
+  }
+
+  /* The textarea and its action bar are one object: the border and the
+     focus ring belong to the wrapper, never to the two halves. */
+  .composer__box {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    background: var(--surface-1);
+    transition: border-color 0.14s var(--ease), box-shadow 0.14s var(--ease),
+      background 0.14s var(--ease);
+  }
+
+  .composer__box:focus-within {
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+  }
+
+  .composer__box:has(textarea:disabled) {
+    background: var(--surface-2);
+    border-color: var(--border);
+  }
+
+  .composer__box textarea {
+    border: 0;
+    border-radius: var(--r-md) var(--r-md) 0 0;
+    background: transparent;
+    padding: var(--sp-3) var(--sp-4);
+    min-height: 3.5rem;
+    max-height: 12rem; /* kept in step with sizePrompt() in app.js */
+    font-size: var(--fs-base);
+    /* The composer grows itself on input; a drag handle would fight it. */
+    resize: none;
+  }
+
+  .composer__box textarea:hover,
+  .composer__box textarea:focus,
+  .composer__box textarea:disabled {
+    border-color: transparent;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .composer__bar {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     flex-wrap: wrap;
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+    border-top: 1px solid var(--border);
   }
 
-  #readout:not(:empty),
-  #errors:not(:empty) {
-    margin-top: var(--sp-4);
+  .composer__hint {
+    display: none;
   }
 
-  input[type="range"] {
-    width: 100%;
-    accent-color: var(--accent);
+  @media (min-width: 30rem) {
+    .composer__hint {
+      display: inline;
+    }
+  }
+
+  /* The shared spinner reads against a card, not against violet. */
+  #send .spinner {
+    border-color: rgba(255, 255, 255, 0.4);
+    border-top-color: #ffffff;
+  }
+
+  @supports (color: color-mix(in srgb, red, blue)) {
+    #send .spinner {
+      border-color: color-mix(in srgb, var(--accent-ink) 40%, transparent);
+      border-top-color: var(--accent-ink);
+    }
+  }
+
+  /* ------------------------------------------------- 7. Small screens */
+
+  @media (max-width: 40rem) {
+    .conversation > .card__head {
+      padding: var(--sp-3) var(--sp-4);
+    }
+
+    .transcript {
+      gap: var(--sp-3);
+      padding: var(--sp-4);
+      height: clamp(16rem, 50vh, 28rem);
+    }
+
+    .transcript > .msg {
+      max-width: 100%;
+    }
+
+    .transcript > .msg--user {
+      max-width: 94%;
+    }
+
+    #readout:not(:empty),
+    #errors:not(:empty) {
+      margin: var(--sp-3) var(--sp-4);
+    }
+
+    .composer {
+      padding: var(--sp-3) var(--sp-4);
+    }
+
+    .composer__bar {
+      padding-left: var(--sp-3);
+    }
   }
 </style>
 </head>
@@ -93,25 +369,34 @@
     <a class="btn btn--sm" href="https://github.com/AndrewBuildsNYU/archway-chat">Source</a>
   </header>
 
-  <p class="lede">
-    A streaming, multi-turn chatbot in one page of JavaScript. It shows the shape of every
-    Archway call: pick a model from the catalogue your key can reach, stream the tokens back,
-    and read the gateway's accounting headers afterwards.
-  </p>
+  <div class="intro">
+    <h1>Chat with any model your key can reach.</h1>
+    <p class="lede">
+      A streaming, multi-turn chatbot in one page of JavaScript. It shows the shape of every
+      Archway call: pick a model from the catalogue your key can reach, stream the tokens back,
+      and read the gateway's accounting headers underneath the answer.
+    </p>
+  </div>
 
   <div id="key-mount"></div>
 
-  <main id="app" class="stack">
-    <section class="card" aria-labelledby="settings-title">
-      <div class="card__head chat-head">
+  <main id="app" class="workspace">
+    <aside class="card settings" aria-labelledby="settings-title">
+      <div class="card__head">
         <strong id="settings-title">Settings</strong>
-        <span class="spacer"></span>
+        <span class="badge badge--accent hidden" id="system-set">System prompt set</span>
         <button type="button" class="btn btn--sm btn--ghost" id="system-toggle"
-                aria-expanded="false" aria-controls="system-panel" disabled>System prompt</button>
+                aria-expanded="false" aria-controls="system-panel" disabled>
+          System prompt
+          <svg viewBox="0 0 12 8" width="10" height="7" fill="none" aria-hidden="true" focusable="false">
+            <path d="M1 1.5 6 6.5l5-5" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
       </div>
 
       <div class="controls">
-        <div class="field">
+        <div class="field field--wide">
           <label for="model">Model</label>
           <select id="model" disabled>
             <option value="">Connect a key to load models</option>
@@ -126,7 +411,9 @@
         </div>
 
         <div class="field">
-          <label for="temperature">Temperature <span class="mono" id="temp-value">0.70</span></label>
+          <label class="range-label" for="temperature">
+            Temperature <span class="mono" id="temp-value">0.70</span>
+          </label>
           <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.7" disabled>
           <p class="field__hint">0 is near-deterministic, 1 is loose.</p>
         </div>
@@ -140,44 +427,74 @@
           <p class="field__hint">Sent as a <span class="mono">role: "system"</span> message on every turn. Empty means none.</p>
         </div>
       </div>
-    </section>
+    </aside>
 
-    <section class="card" aria-labelledby="conversation-title">
-      <div class="card__head chat-head">
-        <strong id="conversation-title">Conversation</strong>
-        <span class="spacer"></span>
+    <section class="card card--flush conversation" aria-labelledby="conversation-title">
+      <div class="card__head">
+        <div class="row row--tight">
+          <strong id="conversation-title">Conversation</strong>
+          <span class="badge" id="turns">No turns yet</span>
+        </div>
         <button type="button" class="btn btn--sm btn--ghost" id="new-chat" disabled>New chat</button>
       </div>
 
       <div id="transcript" class="transcript" role="log" aria-live="polite"
            aria-relevant="additions text" aria-label="Conversation transcript" tabindex="-1">
-        <div class="empty" id="empty-state">
-          Nothing yet. Ask something below â€” the reply streams in token by token.
+        <div class="empty starter" id="empty-state">
+          <span class="starter__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+                 stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+              <path d="M8.6 10.6h7M8.6 14h4.4"/>
+            </svg>
+          </span>
+          <p class="starter__title">Start the conversation</p>
+          <p class="starter__text" id="starter-text">
+            Connect your Archway key above, then ask anything &mdash; the reply streams back
+            token by token.
+          </p>
+          <div class="starter__chips" id="starter-chips">
+            <button type="button" class="btn btn--sm starter__chip" disabled
+                    data-prompt="Explain how token-by-token streaming works in a chat API, in two short paragraphs.">Explain a concept</button>
+            <button type="button" class="btn btn--sm starter__chip" disabled
+                    data-prompt="Write a Python function that retries an HTTP request with exponential backoff. Comment the tricky parts.">Write some code</button>
+            <button type="button" class="btn btn--sm starter__chip" disabled
+                    data-prompt="Draft a short, polite email asking a professor for a two-day extension on a project.">Draft an email</button>
+            <button type="button" class="btn btn--sm starter__chip" disabled
+                    data-prompt="Summarise the difference between a token quota and a rate limit for someone new to APIs.">Compare two ideas</button>
+          </div>
         </div>
       </div>
 
       <div id="readout" class="readout hidden"></div>
       <div id="errors" role="alert" aria-live="assertive"></div>
 
-      <form class="composer" id="composer">
-        <div class="field">
-          <label for="prompt">Message</label>
-          <textarea id="prompt" rows="3" disabled
-                    placeholder="Enter to send, Shift+Enter for a new line"></textarea>
-        </div>
-        <div class="composer__actions">
-          <button type="submit" class="btn btn--primary" id="send" disabled>Send</button>
-          <button type="button" class="btn btn--danger" id="stop" disabled>Stop</button>
-          <span class="spacer"></span>
-          <span class="xs muted" id="turns">No turns yet</span>
+      <form class="composer card__foot" id="composer">
+        <label class="sr-only" for="prompt">Message</label>
+        <div class="composer__box">
+          <textarea id="prompt" rows="2" disabled
+                    placeholder="Ask anything&hellip;"></textarea>
+          <div class="composer__bar">
+            <span class="xs muted composer__hint">Enter to send &middot; Shift+Enter for a new line</span>
+            <span class="spacer"></span>
+            <button type="button" class="btn btn--danger hidden" id="stop" disabled>Stop</button>
+            <button type="submit" class="btn btn--primary" id="send" disabled>
+              <span class="spinner hidden" id="send-spinner" aria-hidden="true"></span>
+              <span id="send-label">Send</span>
+              <svg id="send-icon" viewBox="0 0 16 16" width="13" height="13" fill="none"
+                   stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                   stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M2.8 8h10M8.4 3.6 12.8 8l-4.4 4.4"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </form>
     </section>
   </main>
 
   <footer class="footer">
-    <span>Runs entirely in your browser. Your key is sent only to the Archway you point it at.</span>
-    <span>Ask whoever issued your key for the gateway address and its documentation.</span>
+    <span>Runs entirely in your browser. Your key is held for this tab only, and is sent only to the Archway.</span>
     <a href="https://github.com/AndrewBuildsNYU?tab=repositories&amp;q=archway-">More examples</a>
   </footer>
 </div>

@@ -45,9 +45,12 @@ and browse to the address it prints. That only serves the static page — the AP
 still go to the same Archway the published app uses. There is no local gateway anywhere in
 this example.
 
-To point the app at a *different* Archway, put its base URL in the key panel. That gateway
-must list your page's origin in `NYU_CORS_ALLOWED_ORIGINS`, or the browser will block the
-request before it is ever sent.
+To point the app at a *different* Archway, edit the `BASE_URL` constant at the top of
+`assets/archway.js`. There is deliberately no field for it in the UI: an endpoint a visitor
+can retype is an endpoint a visitor can be *told* to retype, which is one screenshot away
+from sending an NYU key to somebody else's server. Whichever gateway you point at must list
+your page's origin in `NYU_CORS_ALLOWED_ORIGINS`, or the browser blocks the request before
+it is ever sent.
 
 ## How it works
 

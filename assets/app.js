@@ -1,5 +1,8 @@
-/* Archway Chat — transcript state, streaming turn loop, and the controls around it.
-   Keys, models, errors and the readout strip all belong to the shared Archway client. */
+/* Archway Chat - transcript state, streaming turn loop, and the controls around it.
+   Keys, models, errors and the readout strip all belong to the shared Archway client.
+
+   Everything below the turn loop is UI state: what is disabled, what is spinning,
+   and what the empty canvas says to do next. */
 
 (function () {
   "use strict";
@@ -12,18 +15,31 @@
     tempValue: document.getElementById("temp-value"),
     systemToggle: document.getElementById("system-toggle"),
     systemPanel: document.getElementById("system-panel"),
+    systemSet: document.getElementById("system-set"),
     system: document.getElementById("system"),
     transcript: document.getElementById("transcript"),
     emptyState: document.getElementById("empty-state"),
+    starterText: document.getElementById("starter-text"),
+    starterChips: document.getElementById("starter-chips"),
     readout: document.getElementById("readout"),
     errors: document.getElementById("errors"),
     composer: document.getElementById("composer"),
     prompt: document.getElementById("prompt"),
     send: document.getElementById("send"),
+    sendSpinner: document.getElementById("send-spinner"),
+    sendIcon: document.getElementById("send-icon"),
+    sendLabel: document.getElementById("send-label"),
     stop: document.getElementById("stop"),
     newChat: document.getElementById("new-chat"),
     turns: document.getElementById("turns")
   };
+
+  // Kept in step with .composer__box textarea { max-height } in index.html.
+  var PROMPT_MAX_PX = 192;
+
+  var chips = Array.prototype.slice.call(
+    el.starterChips.querySelectorAll(".starter__chip")
+  );
 
   var state = {
     ready: false,      // a key is present and at least one model loaded
@@ -48,7 +64,7 @@
       state.modelsById = {};
       Archway.clear(el.model);
       el.model.appendChild(new Option("Connect a key to load models", ""));
-      el.modelHint.textContent = "The catalogue is filtered to what your key may call.";
+      setModelHint("The catalogue is filtered to what your key may call.", false);
       setEnabled(false);
     }
   });
@@ -58,7 +74,7 @@
   function loadModels() {
     setEnabled(false);
     Archway.clear(el.errors);
-    el.modelHint.textContent = "Loading the catalogue…";
+    setModelHint("Loading the catalogue…", true);
 
     Archway.listModels().then(function (models) {
       var list = models || [];
@@ -66,7 +82,7 @@
       list.forEach(function (m) { state.modelsById[m.id] = m; });
 
       if (!list.length) {
-        el.modelHint.textContent = "No chat models available to this key.";
+        setModelHint("No chat models available to this key.", false);
         showNotice("No models available",
           "This key cannot reach any chat model yet. Check your quota policy in the Archway portal.");
         return;
@@ -78,7 +94,7 @@
       setEnabled(true);
       el.prompt.focus();
     }).catch(function (err) {
-      el.modelHint.textContent = "Could not load the catalogue.";
+      setModelHint("Could not load the catalogue.", false);
       Archway.renderError(el.errors, err);
     });
   }
@@ -96,10 +112,23 @@
     return claude || fallback || models[0].id;
   }
 
+  /* The model hint doubles as the catalogue's status line, so it is built
+     rather than assigned: a spinner is a node, not a character. */
+  function setModelHint(text, busy) {
+    Archway.clear(el.modelHint);
+    el.modelHint.classList.toggle("is-busy", busy === true);
+    if (busy === true) {
+      var spin = Archway.el("span", "spinner");
+      spin.setAttribute("aria-hidden", "true");
+      el.modelHint.appendChild(spin);
+    }
+    el.modelHint.appendChild(document.createTextNode(text));
+  }
+
   function describeModel() {
     var m = state.modelsById[el.model.value];
     if (!m) {
-      el.modelHint.textContent = "The catalogue is filtered to what your key may call.";
+      setModelHint("The catalogue is filtered to what your key may call.", false);
       return;
     }
 
@@ -117,14 +146,22 @@
       el.maxTokens.removeAttribute("max");
     }
     if (m.deprecated) bits.push("deprecated");
-    el.modelHint.textContent = bits.join(" · ");
+    setModelHint(bits.join(" · "), false);
+  }
+
+  function modelLabel(id) {
+    var m = state.modelsById[id];
+    if (!m) return "";
+    return m.display_name || "";
   }
 
   /* ------------------------------------------------------------ transcript */
 
-  function addMessage(role, text) {
+  function addMessage(role, text, byline) {
     var wrap = Archway.el("div", role === "user" ? "msg msg--user" : "msg");
-    wrap.appendChild(Archway.el("div", "msg__role", role === "user" ? "You" : "Assistant"));
+    var who = role === "user" ? "You" : "Assistant";
+    if (byline) who += " · " + byline;
+    wrap.appendChild(Archway.el("div", "msg__role", who));
     var body = Archway.el("div", "msg__body", text || "");
     wrap.appendChild(body);
     el.transcript.appendChild(wrap);
@@ -146,6 +183,17 @@
     var turns = state.messages.filter(function (m) { return m.role === "user"; }).length;
     el.emptyState.classList.toggle("hidden", state.messages.length > 0);
     el.turns.textContent = turns === 0 ? "No turns yet" : turns + (turns === 1 ? " turn" : " turns");
+  }
+
+  /* The empty canvas is the app's instructions, so it says whichever thing is
+     actually next: connect a key, or ask something. */
+  function paintStarter() {
+    el.starterText.textContent = state.ready
+      ? "Ask anything — the reply streams back token by token. Or start with one of these."
+      : "Connect your Archway key above, then ask anything — the reply streams back token by token.";
+    chips.forEach(function (chip) {
+      chip.disabled = !state.ready || state.busy;
+    });
   }
 
   function showNotice(title, detail) {
@@ -173,7 +221,7 @@
     var userBubble = addMessage("user", text);
     refreshTranscriptChrome();
 
-    var bubble = addMessage("assistant", "");
+    var bubble = addMessage("assistant", "", modelLabel(model));
     bubble.body.classList.add("streaming");
     bubble.body.setAttribute("aria-busy", "true");
 
@@ -260,6 +308,8 @@
       .forEach(function (node) { node.disabled = !on; });
     el.send.disabled = !on || !el.prompt.value.trim();
     el.stop.disabled = true;
+    setSending(false);
+    paintStarter();
   }
 
   function setBusy(busy) {
@@ -270,11 +320,31 @@
     el.prompt.disabled = !state.ready;
     el.send.disabled = busy || !state.ready || !el.prompt.value.trim();
     el.stop.disabled = !busy;
+    setSending(busy);
+    paintStarter();
+  }
+
+  /* Stop only exists while there is something to stop, and Send says what it
+     is doing rather than going quiet. */
+  function setSending(busy) {
+    el.sendSpinner.classList.toggle("hidden", !busy);
+    el.sendIcon.classList.toggle("hidden", busy);
+    el.sendLabel.textContent = busy ? "Streaming" : "Send";
+    el.send.setAttribute("aria-busy", busy ? "true" : "false");
+    el.stop.classList.toggle("hidden", !busy);
+  }
+
+  function refreshSendState() {
+    el.send.disabled = state.busy || !state.ready || !el.prompt.value.trim();
   }
 
   function sizePrompt() {
     el.prompt.style.height = "auto";
-    el.prompt.style.height = Math.min(el.prompt.scrollHeight, 224) + "px";
+    el.prompt.style.height = Math.min(el.prompt.scrollHeight, PROMPT_MAX_PX) + "px";
+  }
+
+  function paintSystemBadge() {
+    el.systemSet.classList.toggle("hidden", el.system.value.trim().length === 0);
   }
 
   /* --------------------------------------------------------------- events */
@@ -294,7 +364,24 @@
 
   el.prompt.addEventListener("input", function () {
     sizePrompt();
-    el.send.disabled = state.busy || !state.ready || !el.prompt.value.trim();
+    refreshSendState();
+  });
+
+  /* A starter chip is a first message, not a shortcut that sends one: it fills
+     the composer so the wording can still be changed before it goes. */
+  el.starterChips.addEventListener("click", function (ev) {
+    var chip = ev.target && ev.target.closest ? ev.target.closest(".starter__chip") : null;
+    if (!chip || chip.disabled) return;
+    var text = chip.getAttribute("data-prompt") || chip.textContent;
+    el.prompt.value = text;
+    sizePrompt();
+    refreshSendState();
+    el.prompt.focus();
+    try {
+      el.prompt.setSelectionRange(text.length, text.length);
+    } catch (err) {
+      /* Safari throws on a hidden or freshly enabled field; the text is there. */
+    }
   });
 
   el.stop.addEventListener("click", stop);
@@ -305,13 +392,15 @@
     el.tempValue.textContent = Number(el.temperature.value).toFixed(2);
   });
 
+  el.system.addEventListener("input", paintSystemBadge);
+
   el.systemToggle.addEventListener("click", function () {
     var open = el.systemPanel.classList.toggle("hidden") === false;
     el.systemToggle.setAttribute("aria-expanded", open ? "true" : "false");
     if (open) el.system.focus();
   });
 
-  // Escape aborts a stream from anywhere, including the composer — it is not a
+  // Escape aborts a stream from anywhere, including the composer - it is not a
   // key anyone types into a message.
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape" && state.busy) {
@@ -322,5 +411,7 @@
 
   el.tempValue.textContent = Number(el.temperature.value).toFixed(2);
   setEnabled(false);
+  paintSystemBadge();
   refreshTranscriptChrome();
+  sizePrompt();
 })();
