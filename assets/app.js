@@ -13,6 +13,7 @@
     maxTokens: document.getElementById("max-tokens"),
     temperature: document.getElementById("temperature"),
     tempValue: document.getElementById("temp-value"),
+    tempHint: document.getElementById("temp-hint"),
     systemToggle: document.getElementById("system-toggle"),
     systemPanel: document.getElementById("system-panel"),
     systemSet: document.getElementById("system-set"),
@@ -129,6 +130,7 @@
     var m = state.modelsById[el.model.value];
     if (!m) {
       setModelHint("The catalogue is filtered to what your key may call.", false);
+      paintTemperature();
       return;
     }
 
@@ -147,6 +149,26 @@
     }
     if (m.deprecated) bits.push("deprecated");
     setModelHint(bits.join(" \u00b7 "), false);
+    paintTemperature();
+  }
+
+  /* A reasoning model runs only at its default temperature and rejects the
+     request outright otherwise, so the shared client drops the field for one.
+     A slider left live over a value that is being thrown away is a lie, so it
+     goes dead and says why.
+
+     Called after every turn as well as on every model change: the client can
+     also discover the refusal at runtime, from a model this build had never
+     heard of. */
+  function paintTemperature() {
+    var supported = Archway.supportsTemperature(el.model.value);
+    if (!supported) el.temperature.disabled = true;
+    el.tempValue.textContent = supported
+      ? Number(el.temperature.value).toFixed(2)
+      : "default";
+    el.tempHint.textContent = supported
+      ? "0 is near-deterministic, 1 is loose."
+      : "This model only runs at its own default, so the slider is off for it.";
   }
 
   function modelLabel(id) {
@@ -310,6 +332,7 @@
     el.stop.disabled = true;
     setSending(false);
     paintStarter();
+    paintTemperature();
   }
 
   function setBusy(busy) {
@@ -322,6 +345,7 @@
     el.stop.disabled = !busy;
     setSending(busy);
     paintStarter();
+    paintTemperature();
   }
 
   /* Stop only exists while there is something to stop, and Send says what it
@@ -409,8 +433,7 @@
     }
   });
 
-  el.tempValue.textContent = Number(el.temperature.value).toFixed(2);
-  setEnabled(false);
+  setEnabled(false);   // also paints the temperature readout and its hint
   paintSystemBadge();
   refreshTranscriptChrome();
   sizePrompt();
