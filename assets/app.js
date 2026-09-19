@@ -14,6 +14,9 @@
     temperature: document.getElementById("temperature"),
     tempValue: document.getElementById("temp-value"),
     tempHint: document.getElementById("temp-hint"),
+    reasoning: document.getElementById("reasoning"),
+    reasoningField: document.getElementById("reasoning-field"),
+    reasoningHint: document.getElementById("reasoning-hint"),
     systemToggle: document.getElementById("system-toggle"),
     systemPanel: document.getElementById("system-panel"),
     systemSet: document.getElementById("system-set"),
@@ -131,6 +134,7 @@
     if (!m) {
       setModelHint("The catalogue is filtered to what your key may call.", false);
       paintTemperature();
+      paintReasoning();
       return;
     }
 
@@ -150,6 +154,29 @@
     if (m.deprecated) bits.push("deprecated");
     setModelHint(bits.join(" \u00b7 "), false);
     paintTemperature();
+    paintReasoning();
+  }
+
+  /* The reasoning-effort control, shown only where it does something.
+     `default_reasoning_effort` is on the /v1/models entry exactly where the
+     gateway pins a thinking budget for the vendor, so this needs no list of
+     vendor names and a new thinking model lights it up on its own.
+
+     The hint is the part worth having. On Gemini the thinking tokens are spent
+     out of the same max_tokens the visible answer comes from, so turning this
+     up without raising the cap is how an answer arrives truncated - which is
+     the whole reason the gateway pins a default in the first place. */
+  function paintReasoning() {
+    var m = state.modelsById[el.model.value];
+    var supported = Archway.supportsReasoningEffort(m);
+    el.reasoningField.classList.toggle("hidden", !supported);
+    if (!supported) {
+      el.reasoning.value = "";
+      return;
+    }
+    el.reasoningHint.textContent = el.reasoning.value
+      ? "Thinking is spent from the same max output tokens as the answer."
+      : "Gateway default for this vendor: " + m.default_reasoning_effort + ".";
   }
 
   /* A reasoning model runs only at its default temperature and rejects the
@@ -260,6 +287,9 @@
       system: system || undefined,
       maxTokens: readMaxTokens(),
       temperature: Number(el.temperature.value),
+      // "" means the caller expressed no preference, and the shared client
+      // omits the field entirely so the gateway's own default still applies.
+      reasoningEffort: el.reasoning.value || undefined,
       signal: controller.signal
     }, function (fragment, full) {
       partial = full;
@@ -326,18 +356,21 @@
   /* ------------------------------------------------------------ UI state */
 
   function setEnabled(on) {
-    [el.model, el.maxTokens, el.temperature, el.system, el.systemToggle, el.prompt, el.newChat]
+    [el.model, el.maxTokens, el.temperature, el.reasoning, el.system, el.systemToggle,
+     el.prompt, el.newChat]
       .forEach(function (node) { node.disabled = !on; });
     el.send.disabled = !on || !el.prompt.value.trim();
     el.stop.disabled = true;
     setSending(false);
     paintStarter();
     paintTemperature();
+    paintReasoning();
   }
 
   function setBusy(busy) {
     state.busy = busy;
-    [el.model, el.maxTokens, el.temperature, el.system, el.systemToggle, el.newChat]
+    [el.model, el.maxTokens, el.temperature, el.reasoning, el.system, el.systemToggle,
+     el.newChat]
       .forEach(function (node) { node.disabled = busy || !state.ready; });
     // The composer stays live during a stream so the next question can be typed.
     el.prompt.disabled = !state.ready;
@@ -415,6 +448,8 @@
   el.temperature.addEventListener("input", function () {
     el.tempValue.textContent = Number(el.temperature.value).toFixed(2);
   });
+
+  el.reasoning.addEventListener("change", paintReasoning);
 
   el.system.addEventListener("input", paintSystemBadge);
 

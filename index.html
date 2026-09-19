@@ -417,6 +417,18 @@
           <input type="range" id="temperature" min="0" max="1" step="0.05" value="0.7" disabled>
           <p class="field__hint" id="temp-hint">0 is near-deterministic, 1 is loose.</p>
         </div>
+
+        <div class="field hidden" id="reasoning-field">
+          <label for="reasoning">Reasoning effort</label>
+          <select id="reasoning" disabled>
+            <option value="">Gateway default</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+          <p class="field__hint" id="reasoning-hint">Thinking comes out of the same output budget.</p>
+        </div>
       </div>
 
       <div id="system-panel" class="hidden">
