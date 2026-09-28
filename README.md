@@ -86,6 +86,7 @@ comes back as a normal gateway error and `Archway.renderError` explains it.
 | `assets/app.js` | This app: transcript state, the streaming turn loop, the controls |
 | `assets/archway.js` | Shared Archway client — key panel, models, chat, readout, errors |
 | `assets/archway.css` | Shared design system — tokens, components, dark mode |
+| `assets/fonts/` | Inter, the interface typeface, self-hosted under the SIL Open Font License (`OFL.txt`) |
 
 The two shared files are copied in from the examples collection; edit them there, not here.
 
